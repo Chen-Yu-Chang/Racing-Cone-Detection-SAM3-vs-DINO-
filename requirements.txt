@@ -1,0 +1,32 @@
+# Core
+torch>=2.2
+torchvision>=0.17
+transformers>=4.44   # has GroundingDinoForObjectDetection built in
+pillow
+numpy
+opencv-python
+matplotlib
+
+# For reading the .mcap file without needing a full ROS2 install
+mcap
+rosbags>=0.9
+
+# SAM3 itself is NOT on pip (it's a very new, Nov 2025 release) - clone it
+# from source instead, see README.md step 3.
+#
+# On Apple Silicon Macs: also install sam3-mac, a community shim that
+# patches around SAM3's hard triton dependency (triton has no macOS build).
+# See README.md step 3 and the comment at the top of run_sam3.py.
+sam3-mac
+einops
+timm
+hydra-core
+omegaconf
+iopath
+ftfy
+regex
+tqdm
+scikit-image
+pycocotools
+pandas
+psutil
