@@ -1,0 +1,257 @@
+{
+  "model": "sam3 (via sam3-mac)",
+  "device": "mps",
+  "num_frames": 49,
+  "model_load_time_sec": 14.086,
+  "total_inference_time_sec": 92.628,
+  "mean_inference_time_sec": 1.8904,
+  "fps": 0.529,
+  "concepts_per_frame": 3,
+  "per_frame": [
+    {
+      "frame": "frame_0000.jpg",
+      "inference_time_sec": 2.0173,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0001.jpg",
+      "inference_time_sec": 1.7752,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0002.jpg",
+      "inference_time_sec": 1.8234,
+      "num_detections": 8
+    },
+    {
+      "frame": "frame_0003.jpg",
+      "inference_time_sec": 1.8228,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0004.jpg",
+      "inference_time_sec": 1.8281,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0005.jpg",
+      "inference_time_sec": 1.8278,
+      "num_detections": 8
+    },
+    {
+      "frame": "frame_0006.jpg",
+      "inference_time_sec": 1.8211,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0007.jpg",
+      "inference_time_sec": 1.8323,
+      "num_detections": 8
+    },
+    {
+      "frame": "frame_0008.jpg",
+      "inference_time_sec": 1.846,
+      "num_detections": 10
+    },
+    {
+      "frame": "frame_0009.jpg",
+      "inference_time_sec": 1.9294,
+      "num_detections": 18
+    },
+    {
+      "frame": "frame_0010.jpg",
+      "inference_time_sec": 1.6946,
+      "num_detections": 0
+    },
+    {
+      "frame": "frame_0011.jpg",
+      "inference_time_sec": 1.9142,
+      "num_detections": 10
+    },
+    {
+      "frame": "frame_0012.jpg",
+      "inference_time_sec": 1.8087,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0013.jpg",
+      "inference_time_sec": 1.764,
+      "num_detections": 0
+    },
+    {
+      "frame": "frame_0014.jpg",
+      "inference_time_sec": 1.8355,
+      "num_detections": 4
+    },
+    {
+      "frame": "frame_0015.jpg",
+      "inference_time_sec": 1.9777,
+      "num_detections": 21
+    },
+    {
+      "frame": "frame_0016.jpg",
+      "inference_time_sec": 1.8674,
+      "num_detections": 16
+    },
+    {
+      "frame": "frame_0017.jpg",
+      "inference_time_sec": 1.9213,
+      "num_detections": 17
+    },
+    {
+      "frame": "frame_0018.jpg",
+      "inference_time_sec": 1.8118,
+      "num_detections": 9
+    },
+    {
+      "frame": "frame_0019.jpg",
+      "inference_time_sec": 1.8003,
+      "num_detections": 4
+    },
+    {
+      "frame": "frame_0020.jpg",
+      "inference_time_sec": 1.9202,
+      "num_detections": 9
+    },
+    {
+      "frame": "frame_0021.jpg",
+      "inference_time_sec": 1.9307,
+      "num_detections": 10
+    },
+    {
+      "frame": "frame_0022.jpg",
+      "inference_time_sec": 1.8847,
+      "num_detections": 11
+    },
+    {
+      "frame": "frame_0023.jpg",
+      "inference_time_sec": 1.9457,
+      "num_detections": 17
+    },
+    {
+      "frame": "frame_0024.jpg",
+      "inference_time_sec": 1.9299,
+      "num_detections": 19
+    },
+    {
+      "frame": "frame_0025.jpg",
+      "inference_time_sec": 1.9149,
+      "num_detections": 19
+    },
+    {
+      "frame": "frame_0026.jpg",
+      "inference_time_sec": 1.9367,
+      "num_detections": 11
+    },
+    {
+      "frame": "frame_0027.jpg",
+      "inference_time_sec": 1.8826,
+      "num_detections": 9
+    },
+    {
+      "frame": "frame_0028.jpg",
+      "inference_time_sec": 1.8318,
+      "num_detections": 4
+    },
+    {
+      "frame": "frame_0029.jpg",
+      "inference_time_sec": 1.8724,
+      "num_detections": 6
+    },
+    {
+      "frame": "frame_0030.jpg",
+      "inference_time_sec": 1.8697,
+      "num_detections": 6
+    },
+    {
+      "frame": "frame_0031.jpg",
+      "inference_time_sec": 2.026,
+      "num_detections": 12
+    },
+    {
+      "frame": "frame_0032.jpg",
+      "inference_time_sec": 1.8695,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0033.jpg",
+      "inference_time_sec": 2.1088,
+      "num_detections": 10
+    },
+    {
+      "frame": "frame_0034.jpg",
+      "inference_time_sec": 1.852,
+      "num_detections": 7
+    },
+    {
+      "frame": "frame_0035.jpg",
+      "inference_time_sec": 1.8646,
+      "num_detections": 5
+    },
+    {
+      "frame": "frame_0036.jpg",
+      "inference_time_sec": 1.92,
+      "num_detections": 8
+    },
+    {
+      "frame": "frame_0037.jpg",
+      "inference_time_sec": 1.9345,
+      "num_detections": 10
+    },
+    {
+      "frame": "frame_0038.jpg",
+      "inference_time_sec": 1.929,
+      "num_detections": 12
+    },
+    {
+      "frame": "frame_0039.jpg",
+      "inference_time_sec": 1.9438,
+      "num_detections": 14
+    },
+    {
+      "frame": "frame_0040.jpg",
+      "inference_time_sec": 1.9525,
+      "num_detections": 18
+    },
+    {
+      "frame": "frame_0041.jpg",
+      "inference_time_sec": 1.8964,
+      "num_detections": 11
+    },
+    {
+      "frame": "frame_0042.jpg",
+      "inference_time_sec": 1.9104,
+      "num_detections": 11
+    },
+    {
+      "frame": "frame_0043.jpg",
+      "inference_time_sec": 1.834,
+      "num_detections": 5
+    },
+    {
+      "frame": "frame_0044.jpg",
+      "inference_time_sec": 1.939,
+      "num_detections": 12
+    },
+    {
+      "frame": "frame_0045.jpg",
+      "inference_time_sec": 1.9274,
+      "num_detections": 11
+    },
+    {
+      "frame": "frame_0046.jpg",
+      "inference_time_sec": 2.0134,
+      "num_detections": 12
+    },
+    {
+      "frame": "frame_0047.jpg",
+      "inference_time_sec": 1.9217,
+      "num_detections": 12
+    },
+    {
+      "frame": "frame_0048.jpg",
+      "inference_time_sec": 1.9466,
+      "num_detections": 12
+    }
+  ]
+}

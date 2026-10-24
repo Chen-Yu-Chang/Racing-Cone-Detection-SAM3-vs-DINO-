@@ -1,0 +1,7 @@
+path: /Users/enzo/Desktop/CMU/CMURacing/cone_label_test/dataset
+train: images/train
+val: images/val
+names:
+  0: blue cone
+  1: yellow cone
+  2: orange cone

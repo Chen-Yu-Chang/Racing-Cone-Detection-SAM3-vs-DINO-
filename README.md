@@ -216,13 +216,169 @@ recall pass.
   the ones worth a closer look - that disagreement is a built-in signal for
   which frames need human review before going into a training set.
 
-## A note on scale
+## Part 2: Auto-labeling pipeline (SAM3 -> YOLO26s)
 
-This was deliberately a ~15-frame smoke test, not a full benchmark. Now
-that there's a qualitative signal (SAM3 finds more far-field cones; DINO is
-more legible at a glance but less complete), the next step is bringing this
-back to the team before scaling up - running either model across a full
-dataset is a much bigger compute/time commitment worth deciding on
-together, and a proper precision/recall comparison against some
-human-labeled ground truth would be needed before picking one for real
-auto-labeling use.
+Part 1 compared Grounding DINO and SAM3 on real cone frames. This part uses SAM3 as an automatic labeler, trains YOLO26s on its output, and adds tools for the frames where SAM3 fails (night, glare, motion blur).
+
+### Where this fits in the team architecture
+
+```
+Camera frames (mcap)
+      |
+      v
+ Dataset building  -- SAM3 auto-labels + previous-frame check + enhancement
+      |                + frame-quality report (what a human must review)
+      v
+ Model training    -- YOLO26s, standard supervised training
+      |
+      v
+ Model evaluation  -- precision / recall / mAP, per condition (night vs day)
+      |
+      +--> refine the dataset (hand-label the hard frames, add data) --> back to dataset building
+```
+
+"Loss feedback" here means ordinary supervised training. Ultralytics computes the loss between YOLO's predictions and the SAM3-derived labels every batch and updates the weights. There is no separate feedback code.
+
+### Files
+
+| File | Purpose |
+|---|---|
+| `autolabel_sam3_temporal.py` | **Main labeling script.** SAM3 on consecutive frames, with enhanced second look, previous-frame tracking, color memory, frame-quality report. Writes a YOLO dataset. |
+| `temporal_utils.py` | The logic it uses: enhancement, optical flow, tracker with color voting, frame-quality flags, review ranking, block train/val split. |
+| `rerank_review.py` | Rebuilds the review list from an existing `frame_quality.csv`. No SAM3 re-run needed. |
+| `train_yolo26s.py` | Trains YOLO26s on the dataset (thin wrapper around Ultralytics). |
+| `test_temporal.py` | 21 self-checks. Need no SAM3 and no GPU (a fake detector stands in for SAM3). |
+| `extract_frames.py` | Cuts frames from the mcap. Use `--every-n 2` or `3` for this pipeline. |
+| `run_grounding_dino.py`, `run_sam3.py`, `compare_side_by_side.py` | Part 1 comparison and benchmark timing. Finished, not part of the training pipeline. |
+| `autolabel_sam3_to_yolo.py` | **Retired.** Single-frame labeler, replaced by `autolabel_sam3_temporal.py` (which behaves like it with `--temporal-concepts none --no-enhance`, apart from the split and score flags). |
+
+### How to run
+
+1. **Extract consecutive frames.** The previous-frame check needs frames close in time (the first test used 1 frame per second, which is too sparse).
+   ```
+   python extract_frames.py --mcap <file.mcap> --topic <camera topic> --every-n 3 --max-frames 150 --out frames_seq/
+   ```
+2. **Self-test (optional, fast).**
+   ```
+   python test_temporal.py
+   ```
+3. **Label.**
+   ```
+   python autolabel_sam3_temporal.py --frames frames_seq/ --out dataset_seq/ --preview preview_seq/ --export-review review_seq/
+   ```
+4. **Review.** Open `dataset_seq/review_first.csv` and the preview images. Fix or remove bad frames (see "Reviewing the labels").
+5. **Train.**
+   ```
+   python train_yolo26s.py --data dataset_seq/data.yaml --epochs 30
+   ```
+6. **Re-rank without re-labeling** (to change thresholds or the ranking):
+   ```
+   python rerank_review.py --dataset dataset_seq/ --min-priority 2 --export-review review_seq/
+   ```
+
+Process each recording on its own, with its own `--out`. Frames are treated as one continuous video in filename order, so night and day recordings must not share a folder. Day and night datasets can be merged afterward; a merge script is not written yet.
+
+### How the labeling works
+
+Per frame, in order:
+
+1. **Motion since the previous frame.** Dense optical flow (Farneback). If the typical scene motion exceeds `--reset-px` (default 60 px), the view jumped, so all tracks are forgotten.
+2. **Pass 1:** SAM3 on the original frame for every color (blue, yellow, orange).
+3. **Pass 2 (enhanced second look):** only if a tracked cone was lost, or no confident detection exists for that color, SAM3 is run again on an enhanced copy (local contrast, blue boost, sharpening). Boxes from both passes are merged. The enhanced copy is used for detection only. The image saved in the dataset is always the untouched original.
+4. **Tracker.** All colors share one tracker, so one physical cone is one track:
+   - A detection with score >= `--hi-score` (0.5) is accepted and starts or extends a track.
+   - A faint detection (`--lo-score` 0.25 to `--hi-score`) is accepted only if it lines up with a confirmed track (seen in at least `--min-hits` frames).
+   - A confirmed cone that nothing detected is carried forward by the measured motion for at most `--max-gap` frames (default 3). These boxes are marked **propagated**.
+5. **Color memory.** Each confident detection votes for its color. Faint detections and propagated boxes take the track's voted color, so a smeared blue cone called "yellow" at 0.3 stays blue (marked `relabeled`). A confident detection that disagrees with the vote is kept but marked `color_conflict`. Color is not guessed from left/right position, since that flips in hairpins.
+6. **Frame quality.** Brightness, blown-out %, near-black %, and a normalized sharpness number are measured, then flagged (see below).
+
+Defaults: `--temporal-concepts all`, `--enhance-concepts "blue cone,yellow cone"`. For daylight footage use `--no-enhance` (the blue boost also boosts blue sky).
+
+The train/val split is by blocks of consecutive frames (`--block-size`, default 20). Shuffling single frames would put near-identical neighbors on both sides and inflate validation scores.
+
+### Reviewing the labels
+
+SAM3's output is used as ground truth, so every guess must be visible.
+
+**`label_report.csv`** has one row per box: frame, concept, source (`detected` / `propagated`), score, `enhanced` (found only on the enhanced copy), `low_conf`, `relabeled`, `color_conflict`, `color_votes` (like `blue:3.1|yellow:0.6`), track id, box coordinates, and the frame's flags, brightness and priority.
+
+**`frame_quality.csv`** has one row per frame, including frames with no boxes:
+
+| Flag | Meaning |
+|---|---|
+| `glare` | at least 1% of pixels blown out AND at least 20% nearly black (a lamp or headlight in the dark). A bright white sky alone does not count. |
+| `low_light` | median gray level below 25. Informational: on a night recording nearly every frame has it. |
+| `blurry` | sharpness below half the sequence's median sharpness |
+
+**`review_first.csv`** lists frames to look at, worst first:
+
+| Priority | Meaning |
+|---|---|
+| 3 | A flagged frame with **no boxes**. The label file is empty, so YOLO would be taught "no cone here". |
+| 2 | At least half of its boxes are guesses, or a color disagreement/relabel happened |
+| 1 | Some guessed (propagated) boxes |
+| 0 | Everything else. `low_light` and `low_conf` alone never raise a frame. |
+
+**Preview images** (`--preview`): magenta box / `P` = propagated, `E` = found on the enhanced copy, `R` = color relabeled, `!` = color conflict.
+
+`--export-review DIR` copies the frames that need review, with their draft YOLO labels, into one folder that can be opened in CVAT, Label Studio or Roboflow. `--drop-propagated` keeps propagated boxes out of the label files (they stay in the report).
+
+The glare, blur and low-light thresholds (`--glare-sat-pct`, `--glare-dark-pct`, `--low-light-median`, `--blur-ratio`) are starting points measured on one night frame. Tune them on your own footage.
+
+### Training and how to read the output
+
+```
+python train_yolo26s.py --data dataset_seq/data.yaml --epochs 30
+```
+
+Results land in `runs_cone_autolabel/yolo26s_sam3_autolabel/` (`results.csv`, `results.png`, `weights/best.pt`). `.pt` is a PyTorch checkpoint; `best.pt` is the best validation epoch.
+
+**Losses** (printed values are already multiplied by their gains):
+
+| Loss | What it measures |
+|---|---|
+| `box_loss` | box position/size error, 7.5 x (1 - CIoU) |
+| `cls_loss` | class (color) error, binary cross-entropy against IoU-aligned targets, gain 0.5 |
+| `l1_loss` | L1 distance error on box edges, gain 1.5. YOLO26 has no DFL, so there is no `dfl_loss`. |
+
+The raw box loss is about 0.2 (CIoU about 0.8); the printed 1-2 is the 7.5x gain, not a negative CIoU.
+
+**Metrics:** precision (of drawn boxes, how many are right), recall (of real cones, how many were found), mAP50 (overlap at least 50%), mAP50-95 (stricter overlap, rewards tight boxes). The `(B)` in plot titles means box detection.
+
+**Resolution.** Training uses `imgsz=640` by default. The camera frames are 1920x1200, so far cones are only a few pixels wide after resizing. 1280 costs about 4x the compute of 640. The horizon-band crop and the 1280 experiment are not done yet.
+
+### Results so far
+
+**Small test (15 frames, 20 epochs, single-frame labeler).** This only proves the plumbing works end to end:
+
+| Class | Instances | Precision | Recall | mAP50 | mAP50-95 |
+|---|---|---|---|---|---|
+| all | 170 | 0.896 | 0.758 | 0.82 | 0.544 |
+| blue | 97 | 0.884 | 0.856 | 0.91 | 0.562 |
+| yellow | 59 | 0.884 | 0.78 | 0.894 | 0.516 |
+| orange | 14 | 0.965 | 0.643 | 0.645 | 0.558 |
+
+Orange is weakest: few instances and confusion with yellow. Inference was about 41 ms per image on the Mac.
+
+**30-epoch run** [TODO: confirm which dataset these plots came from]: precision about 0.89, recall about 0.70, mAP50 about 0.81, mAP50-95 about 0.59. Losses fell steadily, validation loss did not rise, and the metrics flattened around epochs 20-25. Precision is much higher than recall (cautious model: few false alarms, about 30% of cones missed), and mAP50-95 is far below mAP50 (boxes are not tight, especially on far cones).
+
+**Night recording analysis (378 consecutive frames).** The frame-quality report showed:
+- Frames 0-215 are healthy: 10-12 cones per frame, no guessed boxes.
+- Frames 255-275 lose almost everything in glare and blur: the box count falls from about 19 to 0, and 266-275 have no labels at all. Frames 255-257 are 100% propagated.
+- Frames 336-362 have about 0-1 boxes per frame against about 12 elsewhere (to be checked by eye: empty track or missed cones).
+- 22 frames have zero boxes while flagged (priority 3), and these are in the training and validation sets.
+- 478 of 3,400 training boxes (14%) are propagated guesses. 108 of 908 validation boxes are guesses.
+- The validation blocks (40-59, 140-159, 220-239, 320-339) include the hardest stretches, so validation is harsher and less reliable than training.
+
+### What was learned
+
+- **Enhancement helps dim blue cones but does not fix glare or motion blur.** Tested on a real night frame: brightening mostly amplified noise, because the cones there are motion-blurred smears with washed-out color and about 3% of pixels are fully blown out. Clipped pixels cannot be recovered in software.
+- **Real fixes:** shorter exposure with more gain (or HDR) at the camera; hand-checked labels on the hard frames so YOLO can learn what blurred cones look like (SAM3's text prompt cannot); training augmentations (motion blur, darkening, noise, fake flare); and per-condition evaluation.
+- **LiDAR was deliberately not used**, because the goal is a camera-only (independent) perception path.
+
+### Limitations
+
+- All labels are SAM3's. The scores measure agreement with SAM3, not with the real cones: a cone SAM3 missed is "background" in the labels, and a model that also misses it is scored as correct.
+- Propagated boxes are estimates. Review them before trusting a model trained on them.
+- The self-tests use a fake color-based detector. They check the tracking, enhancement, color vote, report and file plumbing, not SAM3's quality on real footage.
+- Thresholds (score cutoffs, `--max-gap`, flag limits) are not yet tuned on real data.

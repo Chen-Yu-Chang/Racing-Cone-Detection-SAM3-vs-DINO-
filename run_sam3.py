@@ -5,6 +5,10 @@ Runs SAM3 (Meta, Nov 2025) on every image in a folder using text "concept"
 prompts for cone colors, and saves annotated copies with the segmentation
 masks overlaid + confidence scores.
 
+Also benchmarks per-frame inference time and writes the results to
+<out>/benchmark.json so compare_side_by_side.py can show them next to
+Grounding DINO's numbers.
+
 SAM3 is very new - the exact API below matches the official repo's README
 as of when this was written. If a call signature has changed, check
 https://github.com/facebookresearch/sam3 directly (their example notebooks
@@ -20,7 +24,7 @@ MPS/CPU automatically. Its one limitation is that video tracking doesn't
 work - that's fine here, we're only doing per-frame text-prompted image
 segmentation, not tracking across frames.
 
-    pip install sam3-mac
+    pip install "git+https://github.com/benreichman/sam3-mac.git"
 
 If you're on Linux with an NVIDIA GPU instead, `triton` installs fine
 normally and you likely don't need sam3-mac at all - swap the import block
@@ -31,6 +35,9 @@ Usage:
 """
 
 import argparse
+import json
+import statistics
+import time
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +55,32 @@ MASK_COLORS = {
     "yellow cone": (255, 220, 60),
     "orange cone": (255, 140, 40),
 }
+
+
+def get_device():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+        if torch.backends.mps.is_available():
+            return "mps"
+    except Exception:
+        pass
+    return "cpu"
+
+
+def sync_device(device):
+    """GPU ops (mps/cuda) are launched asynchronously - without this, the
+    timer stops before the actual compute finishes and every number looks
+    unrealistically fast."""
+    try:
+        import torch
+        if device == "mps":
+            torch.mps.synchronize()
+        elif device == "cuda":
+            torch.cuda.synchronize()
+    except Exception:
+        pass
 
 
 def to_cpu_numpy(x):
@@ -96,8 +129,15 @@ def overlay_masks(image: Image.Image, masks, boxes, scores, concept: str):
 
 
 def main(frames_dir: str, out_dir: str, concepts: list, confidence_threshold: float):
+    device = get_device()
+    print(f"Using device: {device}")
     print(f"Loading SAM3 model (confidence_threshold={confidence_threshold})...")
+
+    t_load_start = time.perf_counter()
     model, processor = sam3_mac.build_image_model(confidence_threshold=confidence_threshold)
+    sync_device(device)
+    model_load_time = time.perf_counter() - t_load_start
+    print(f"Model loaded in {model_load_time:.2f}s")
 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
 
@@ -105,13 +145,28 @@ def main(frames_dir: str, out_dir: str, concepts: list, confidence_threshold: fl
     if not frame_paths:
         raise SystemExit(f"No .jpg/.png images found in {frames_dir}")
 
+    per_frame_log = []
+
     for fp in frame_paths:
         image = Image.open(fp).convert("RGB")
         annotated = image.copy()
         total = 0
 
+        t_frame_start = time.perf_counter()
+
+        # NOTE: set_image() is called ONCE per frame here, on the clean,
+        # un-annotated image, and the resulting embedding is reused across
+        # all concepts below. The original version called set_image() once
+        # PER CONCEPT, on `annotated` - which by the 2nd/3rd concept already
+        # had earlier overlays drawn onto it. That was both ~3x slower than
+        # necessary (re-embedding the whole image every concept) and meant
+        # later concepts were being detected against a partially-annotated
+        # image instead of the real one. Fixed here so the benchmark timing
+        # reflects real per-frame cost and every concept sees the same,
+        # unmodified input.
+        inference_state = processor.set_image(image)
+
         for concept in concepts:
-            inference_state = processor.set_image(annotated)
             output = processor.set_text_prompt(state=inference_state, prompt=concept)
             masks, boxes, scores = output["masks"], output["boxes"], output["scores"]
             total += len(masks)
@@ -123,11 +178,39 @@ def main(frames_dir: str, out_dir: str, concepts: list, confidence_threshold: fl
             if len(masks) > 0:
                 annotated = overlay_masks(annotated, masks, boxes, scores, concept)
 
+        sync_device(device)
+        frame_time = time.perf_counter() - t_frame_start
+
+        per_frame_log.append({
+            "frame": fp.name,
+            "inference_time_sec": round(frame_time, 4),
+            "num_detections": total,
+        })
+
         out_path = Path(out_dir) / fp.name
         annotated.save(out_path)
-        print(f"{fp.name}: {total} total instances across {len(concepts)} concepts -> {out_path}")
+        print(f"{fp.name}: {total} total instances across {len(concepts)} concepts -> {out_path}  ({frame_time:.3f}s)")
+
+    times = [r["inference_time_sec"] for r in per_frame_log]
+    summary = {
+        "model": "sam3 (via sam3-mac)",
+        "device": device,
+        "num_frames": len(times),
+        "model_load_time_sec": round(model_load_time, 3),
+        "total_inference_time_sec": round(sum(times), 3) if times else None,
+        "mean_inference_time_sec": round(statistics.mean(times), 4) if times else None,
+        "fps": round(len(times) / sum(times), 3) if times and sum(times) else None,
+        "concepts_per_frame": len(concepts),
+        "per_frame": per_frame_log,
+    }
+    (Path(out_dir) / "benchmark.json").write_text(json.dumps(summary, indent=2))
 
     print(f"\nDone. Annotated frames written to {out_dir}")
+    print(
+        f"Benchmark: {summary['num_frames']} frames x {len(concepts)} concepts on {device}, "
+        f"mean {summary['mean_inference_time_sec']}s/frame, "
+        f"{summary['fps']} fps  (full detail in {out_dir}/benchmark.json)"
+    )
 
 
 if __name__ == "__main__":
